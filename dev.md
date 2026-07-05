@@ -62,3 +62,61 @@ New, purely additive:
 ## Practical takeaway
 
 Swapping the plugin source URL from `MLFlexer/resurrect.wezterm` to `YedPool/Wezurrect` should be a drop-in replacement for existing configs, while also picking up the bug fixes and new opt-in features (setup wrapper, instance manager, Claude Code hooks, backups) at no cost to compatibility.
+
+
+
+# Dependency, What is `chrisgve/dev.wezterm`?
+
+A small **developer utility plugin** for WezTerm plugin authors. It is not a
+session/state manager itself — it's infrastructure that other plugins (like
+Wezurrect) use internally.
+
+It was pulled in as a new dependency by `YedPool/Wezurrect`'s `init.lua`
+(`wezterm.plugin.require("https://github.com/chrisgve/dev.wezterm")`) and is
+not present in upstream `MLFlexer/resurrect.wezterm`.
+
+## The problem it solves
+
+WezTerm installs plugins into a hashed, cache-mangled directory name — something
+like `...sZsYedPoolsZsWezurrect`. There's no built-in way for a plugin to
+reliably find *its own* install path at runtime. `dev.wezterm` exists to solve
+exactly that one problem.
+
+## What it actually does
+
+- `wezterm.plugin.list()` — enumerates all installed plugins
+- Searches that list for one whose directory name contains a set of
+  **keywords** the caller provides (Wezurrect passes `{"YedPool"}`)
+- Once found, returns the plugin's real filesystem path and wires up
+  `package.path` so `require("resurrect.xxx")` resolves correctly
+- Nothing else — no file I/O beyond reading Lua's own plugin registry, no
+  shell exec, no network calls
+
+## Why Wezurrect needs it
+
+Upstream `resurrect.wezterm` derived its state directory in a simpler way and
+never needed this. Wezurrect uses `dev.setup()` to reliably locate its own
+plugin folder so it can correctly build the path to its `state/` directory,
+regardless of how WezTerm renamed the install folder on disk.
+
+A comment in Wezurrect's `init.lua` explains the specific reason: depending on
+which URL you install from, WezTerm encodes the plugin path differently —
+either `...sZsYedPoolsZsWezurrect` (canonical URL) or
+`...sZsYedPoolsZsresurrectsDswezterm` (the README's redirected URL). `"YedPool"`
+is the one substring common to both forms, which is why that's the keyword
+used.
+
+## Security scan result
+
+~300 lines total. Reviewed the full source:
+
+- Only does string matching over an in-memory plugin list and sets
+  `package.path`
+- No network calls
+- No shell/process execution
+- No file writes beyond what Lua's `require` machinery already does
+
+**Verdict:** legitimate, narrowly-scoped helper plugin. The one thing worth
+noting isn't a security risk — it's a supply-chain consideration: installing
+Wezurrect now means trusting a second author's code (`chrisgve`) in addition
+to `YedPool`, since `dev.wezterm` loads and runs alongside Wezurrect itself.
